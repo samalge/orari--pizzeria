@@ -3,7 +3,7 @@ import json
 import os
 import pandas as pd
 
-st.set_page_config(page_title="Orari Lavoro Dipendenti", layout="wide")
+st.set_page_config(page_title="Gestione Tavoli Pizzeria", layout="wide")
 st.title("📋 Gestione Turni e Orari del Personale")
 
 STAFF_FILE = "orari_dipendenti.json"
@@ -30,7 +30,7 @@ giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato",
 # --- BARRA LATERALE: GESTIONE ANAGRAFICA STAFF ---
 st.sidebar.header("👤 Gestione Personale")
 
-# Inserimento nuovo dipendente
+# 1. Inserimento nuovo dipendente
 nuovo_nome = st.sidebar.text_input("Nome Nuovo Dipendente:", placeholder="es. Marco").strip()
 if st.sidebar.button("➕ Aggiungi Dipendente"):
     if nuovo_nome == "":
@@ -38,17 +38,35 @@ if st.sidebar.button("➕ Aggiungi Dipendente"):
     elif nuovo_nome in db_orari:
         st.sidebar.error("⚠️ Questo dipendente esiste già.")
     else:
-        # Crea una scheda oraria vuota di default per i 7 giorni
         db_orari[nuovo_nome] = {g: "Riposo" for g in giorni}
         salva_orari(db_orari)
         st.sidebar.success(f"✅ {nuovo_nome} aggiunto!")
         st.rerun()
 
-st.sidebar.markdown("<hr style='margin: 15px 0; border: 0.5px solid #555;'>", unsafe_allow_html=True)
+st.sidebar.markdown("<hr style='margin: 10px 0; border: 0.5px solid #555;'>", unsafe_allow_html=True)
 
-# Rimozione dipendente esistente
+# 2. MODIFICA NOME (Rinomina rapida)
 if db_orari:
-    dipendente_da_eliminare = st.sidebar.selectbox("Elimina Dipendente:", list(db_orari.keys()))
+    st.sidebar.subheader("✏️ Rinomina Dipendente")
+    dipendente_da_rinominare = st.sidebar.selectbox("Seleziona chi cambiare:", list(db_orari.keys()), key="select_rinomina")
+    nome_aggiornato = st.sidebar.text_input("Nuovo nome per questo dipendente:", value=dipendente_da_rinominare, key="input_rinomina").strip()
+    
+    if st.sidebar.button("💾 Aggiorna Nome"):
+        if nome_aggiornato == "":
+            st.sidebar.error("⚠️ Il nome non può essere vuoto.")
+        elif nome_aggiornato in db_orari and nome_aggiornato != dipendente_da_rinominare:
+            st.sidebar.error("⚠️ Questo nome è già utilizzato da un altro dipendente.")
+        else:
+            # Sostituiamo la chiave mantenendo intatti i vecchi orari inseriti
+            db_orari[nome_aggiornato] = db_orari.pop(dipendente_da_rinominare)
+            salva_orari(db_orari)
+            st.sidebar.success(f"✅ Nome aggiornato in {nome_aggiornato}!")
+            st.rerun()
+
+    st.sidebar.markdown("<hr style='margin: 10px 0; border: 0.5px solid #555;'>", unsafe_allow_html=True)
+
+    # 3. Rimozione dipendente esistente
+    dipendente_da_eliminare = st.sidebar.selectbox("Elimina Dipendente:", list(db_orari.keys()), key="select_elimina")
     if st.sidebar.button("🗑️ Rimuovi Definitivamente"):
         del db_orari[dipendente_da_eliminare]
         salva_orari(db_orari)
@@ -66,9 +84,8 @@ else:
     st.header("🕒 Modifica Turni Settimanali")
     st.write("Seleziona un dipendente per modificare i suoi orari di entrata e uscita nei vari giorni.")
     
-    dipendente_selezionato = st.selectbox("Scegli il dipendente da modificare:", list(db_orari.keys()))
+    dipendente_selezionato = st.selectbox("Scegli il dipendente da modificare:", list(db_orari.keys()), key="main_select_dip")
     
-    # Creiamo un modulo con colonne per editare i 7 giorni in orizzontale/verticale ordinato
     st.markdown(f"### Scheda Oraria di: **{dipendente_selezionato}**")
     
     orari_attuali = db_orari[dipendente_selezionato]
@@ -95,17 +112,17 @@ else:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 SALVA ORARI SETTIMANALI", type="primary"):
         db_orari[dipendente_selezionato] = nuovi_orari_inseriti
-        salva_database = carica_orari() # ricarica per evitare sovrascritture concorrenti
+        st.write(db_orari)
+        salva_database = carica_orari()
         salva_database[dipendente_selezionato] = nuovi_orari_inseriti
         salva_orari(salva_database)
         st.success(f"✅ Orari di {dipendente_selezionato} aggiornati con successo nel database!")
         st.rerun()
 
-    # --- TABELLA RIASSUNTIVA FINALE RECOGNITIVA ---
+    # --- TABELLA RIASSUNTIVA FINALE ---
     st.markdown("<hr style='margin: 30px 0; border: 0.5px solid #444;'>", unsafe_allow_html=True)
     st.header("📅 Quadro Orario Generale della Settimana")
     
-    # Convertiamo il dizionario in un formato tabellare leggibile (DataFrame)
     dati_tabella = []
     for nome, turni in db_orari.items():
         riga = {"Dipendente": nome}
