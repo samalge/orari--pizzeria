@@ -2,9 +2,11 @@ import streamlit as st
 import json
 import os
 import pandas as pd
+import re
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Gestione Turni Pizzeria", layout="wide")
-st.title("📋 Gestione Turni e Orari del Personale")
+st.title("📋 Gestione Turni e Orari con Calcolo Ore")
 
 STAFF_FILE = "orari_dipendenti.json"
 
@@ -26,6 +28,39 @@ db_orari = carica_orari()
 
 # Elenco dei giorni della settimana
 giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+
+# --- FUNZIONE INTELLIGENTE DI CALCOLO ORE DA TESTO ---
+def calcola_ore_da_stringa(testo_orario):
+    if not testo_orario or "riposo" in testo_orario.lower():
+        return 0.0
+    
+    # Trova tutte le coppie di orari nel formato HH:MM - HH:MM o simili
+    orari = re.findall(r'(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})', testo_orario)
+    totale_ore = 0.0
+    
+    for h1, m1, h2, m2 in orari:
+        try:
+            inizio = float(h1) + float(m1) / 60.0
+            fine = float(h2) + float(m2) / 60.0
+            
+            # Gestione del turno che scavalca la mezzanotte (es. 18:00 - 01:00)
+            if fine < inizio:
+                fine += 24.0
+                
+            totale_ore += (fine - inizio)
+        except ValueError:
+            continue
+            
+    return round(totale_ore, 2)
+
+# --- CALCOLO DATE DELLA SETTIMANA CORRENTE ---
+oggi = datetime.now()
+# Trova il lunedì della settimana corrente
+lunedi_corrente = oggi - timedelta(days=oggi.weekday())
+date_settimana = {}
+for i, g in enumerate(giorni):
+    data_giorno = lunedi_corrente + timedelta(days=i)
+    date_settimana[g] = data_giorno.strftime("%d/%m")
 
 # --- 🔐 SECURE SESSION LOGIN / LOGOUT SYSTEM ---
 st.sidebar.header("🔐 Accesso Amministratore")
@@ -119,7 +154,7 @@ else:
         for i, giorno in enumerate(giorni):
             with colonne_giorni[i]:
                 valore_attuale = orari_attuali.get(giorno, "Riposo")
-                opzione_tipo = st.radio(f"Stato {giorno}:", ["Turno", "Riposo"], index=0 if valore_attuale != "Riposo" else 1, key=f"tipo_{giorno}")
+                opzione_tipo = st.radio(f"Stato {giorno} ({date_settimana[giorno]}):", ["Turno", "Riposo"], index=0 if valore_attuale != "Riposo" else 1, key=f"tipo_{giorno}")
                 
                 if opzione_tipo == "Turno":
                     testo_orario_default = valore_attuale if valore_attuale != "Riposo" else "10:00 - 15:00 / 18:00 - 23:00"
@@ -140,13 +175,22 @@ else:
 
     # --- TABELLA RIASSUNTIVA FINALE (SEMPRE VISIBILE A TUTTI) ---
     st.markdown("<br>", unsafe_allow_html=True)
-    st.header("📅 Quadro Orario Generale della Settimana")
+    st.header(f"📅 Quadro Orario Generale (Settimana dal {date_settimana['Lunedì']} al {date_settimana['Domenica']})")
     
     dati_tabella = []
     for nome, turni in db_orari.items():
         riga = {"Dipendente": nome}
+        ore_settimanali = 0.0
+        
         for giorno in giorni:
-            riga[giorno] = turni.get(giorno, "Riposo")
+            testo_turno = turni.get(giorno, "Riposo")
+            # Mostra nel titolo della colonna sia il giorno che la data
+            riga[f"{giorno} ({date_settimana[giorno]})"] = testo_turno
+            ore_settimanali += calcola_ore_da_stringa(testo_turno)
+            
+        riga["Ore Settimanali"] = f"{round(ore_settimanali, 1)} h"
+        # Calcolo mensile stimato basato sulle 4 settimane canoniche del mese lavorativo
+        riga["Ore Mensili (Stima)"] = f"{round(ore_settimanali * 4.33, 1)} h"
         dati_tabella.append(riga)
         
     df = pd.DataFrame(dati_tabella)
