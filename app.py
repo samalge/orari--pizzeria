@@ -53,12 +53,10 @@ def calcola_ore_da_stringa(testo_orario):
 # --- 📅 CONTROLLO SELEZIONE SETTIMANA (CON PULSANTI RAPIDI) ---
 st.header("🗓️ Navigazione Settimane")
 
-# Inizializziamo lo stato del giorno di riferimento se non esiste
 if "data_riferimento" not in st.session_state:
     st.session_state["data_riferimento"] = datetime.now().date()
 
-# Layout con tre colonne in alto per i pulsanti e il calendario
-col_prev, col_cal, col_next = st.columns([1, 2, 1])
+col_prev, col_cal, col_next = st.columns(3)
 
 with col_prev:
     if st.button("◀️ Settimana Passata", use_container_width=True):
@@ -71,23 +69,20 @@ with col_next:
         st.rerun()
 
 with col_cal:
-    # Il calendario rimane sincronizzato con i pulsanti, ma permette anche salti lunghi nel tempo
     data_scelta = st.date_input(
-        "Oppure scegli un giorno specifico:", 
+        "Oppure Scegli un Giorno Specifico:", 
         value=st.session_state["data_riferimento"],
         key="calendario_navigazione"
     )
-    # Se l'utente cambia manualmente la data dal calendario, aggiorniamo la sessione
     if data_scelta != st.session_state["data_riferimento"]:
         st.session_state["data_riferimento"] = data_scelta
         st.rerun()
 
-# Calcoliamo l'inizio (Lunedì) della settimana selezionata
+# Calcoliamo la chiave della settimana selezionata
 data_riferimento_attuale = st.session_state["data_riferimento"]
 lunedi_scelto = data_riferimento_attuale - timedelta(days=data_riferimento_attuale.weekday())
-settimana_chiave = lunedi_scelto.strftime("%Y_W%W") # Es: "2026_W35"
+settimana_chiave = lunedi_scelto.strftime("%Y_W%W")
 
-# Generiamo le etichette con le date dei singoli giorni (es. "Lunedì (31/08)")
 date_settimana = {}
 for i, g in enumerate(giorni):
     data_giorno = lunedi_scelto + timedelta(days=i)
@@ -121,7 +116,6 @@ st.sidebar.markdown("<hr style='margin: 10px 0; border: 0.5px solid #555;'>", un
 if st.session_state["staff_admin_logged_in"]:
     st.sidebar.subheader("👤 Amministrazione Personale")
 
-    # 1. Inserimento nuovo dipendente globale
     nuovo_nome = st.sidebar.text_input("Nome Nuovo Dipendente:", placeholder="es. Marco").strip()
     if st.sidebar.button("➕ Aggiungi Dipendente"):
         if nuovo_nome == "":
@@ -135,7 +129,6 @@ if st.session_state["staff_admin_logged_in"]:
 
     st.sidebar.markdown("<hr style='margin: 10px 0; border: 0.5px solid #555;'>", unsafe_allow_html=True)
 
-    # 2. MODIFICA NOME (Rinomina rapida)
     if db_orari:
         st.sidebar.subheader("✏️ Rinomina Dipendente")
         dipendente_da_rinominare = st.sidebar.selectbox("Seleziona chi cambiare:", list(db_orari.keys()), key="select_rinomina")
@@ -152,7 +145,6 @@ if st.session_state["staff_admin_logged_in"]:
 
         st.sidebar.markdown("<hr style='margin: 10px 0; border: 0.5px solid #555;'>", unsafe_allow_html=True)
 
-        # 3. Rimozione dipendente esistente
         dipendente_da_eliminare = st.sidebar.selectbox("Elimina Dipendente:", list(db_orari.keys()), key="select_elimina")
         if st.sidebar.button("🗑️ Rimuovi Definitivamente"):
             del db_orari[dipendente_da_eliminare]
@@ -161,63 +153,60 @@ if st.session_state["staff_admin_logged_in"]:
             st.rerun()
 
 
-# --- TABELLONE PRINCIPALE DEGLI ORARI ---
+# --- TABELLONE MODIFICA TURNI (SOLO SE LOGGATO) ---
+if db_orari and st.session_state["staff_admin_logged_in"]:
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.header(f"🕒 Modifica Turni per la Settimana Selezionata")
+    
+    dipendente_selezionato = st.selectbox("Scegli il dipendente da modificare:", list(db_orari.keys()), key="main_select_dip")
+    st.markdown(f"### Scheda Oraria di: **{dipendente_selezionato}**")
+    
+    orari_settimana_corrente = db_orari.get(dipendente_selezionato, {}).get(settimana_chiave, {})
+    nuovi_orari_inseriti = {}
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col5, col6, col7, _ = st.columns(4)
+    colonne_giorni = [col1, col2, col3, col4, col5, col6, col7]
+    
+    for i, giorno in enumerate(giorni):
+        with colonne_giorni[i]:
+            valore_attuale = orari_settimana_corrente.get(giorno, "Riposo")
+            opzione_tipo = st.radio(f"Stato {giorno} ({date_settimana[giorno]}):", ["Turno", "Riposo"], index=0 if valore_attuale != "Riposo" else 1, key=f"tipo_{giorno}")
+            
+            if opzione_tipo == "Turno":
+                testo_orario_default = valore_attuale if valore_attuale != "Riposo" else "10:00 - 15:00 / 18:00 - 23:00"
+                orario_testo = st.text_input(f"Orario {giorno}:", value=testo_orario_default, key=f"input_{giorno}")
+                nuovi_orari_inseriti[giorno] = orario_testo if orario_testo.strip() != "" else "Riposo"
+            else:
+                nuovi_orari_inseriti[giorno] = "Riposo"
+                st.caption("🛌 Giorno di Riposo")
+                
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 SALVA ORARI SETTIMANALI", type="primary"):
+        if settimana_chiave not in db_orari[dipendente_selezionato]:
+            db_orari[dipendente_selezionato][settimana_chiave] = {}
+        db_orari[dipendente_selezionato][settimana_chiave] = nuovi_orari_inseriti
+        
+        salva_database = carica_orari()
+        if dipendente_selezionato not in salva_database:
+            salva_database[dipendente_selezionato] = {}
+        salva_database[dipendente_selezionato][settimana_chiave] = nuovi_orari_inseriti
+        salva_orari(salva_database)
+        st.success(f"✅ Orari di {dipendente_selezionato} per la settimana salvati!")
+        st.rerun()
+
+
+# --- 📅 QUADRO GENERALE FINALE (SEMPRE VISIBILE A TUTTI IN FONDO) ---
+st.markdown("<br><hr>", unsafe_allow_html=True)
+st.subheader(f"📅 Quadro Orario Generale (Settimana dal {date_settimana['Lunedì']} al {date_settimana['Domenica']})")
+
 if not db_orari:
     st.info("💡 Nessun dipendente registrato nel sistema.")
 else:
-    # SE LOGGATO: Mostra i pannelli interattivi di modifica turni per la settimana selezionata
-    if st.session_state["staff_admin_logged_in"]:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.header(f"🕒 Modifica Turni per la Settimana Selezionata ({settimana_chiave.replace('_', ' ')})")
-        
-        dipendente_selezionato = st.selectbox("Scegli il dipendente da modificare:", list(db_orari.keys()), key="main_select_dip")
-        st.markdown(f"### Scheda Oraria di: **{dipendente_selezionato}**")
-        
-        # Estraiamo gli orari specifici di questa settimana per il dipendente
-        orari_settimana_corrente = db_orari.get(dipendente_selezionato, {}).get(settimana_chiave, {})
-        nuovi_orari_inseriti = {}
-        
-        col1, col2, col3, col4 = st.columns(4)
-        col5, col6, col7, _ = st.columns(4)
-        colonne_giorni = [col1, col2, col3, col4, col5, col6, col7]
-        
-        for i, giorno in enumerate(giorni):
-            with colonne_giorni[i]:
-                valore_attuale = orari_settimana_corrente.get(giorno, "Riposo")
-                opzione_tipo = st.radio(f"Stato {giorno} ({date_settimana[giorno]}):", ["Turno", "Riposo"], index=0 if valore_attuale != "Riposo" else 1, key=f"tipo_{giorno}")
-                
-                if opzione_tipo == "Turno":
-                    testo_orario_default = valore_attuale if valore_attuale != "Riposo" else "10:00 - 15:00 / 18:00 - 23:00"
-                    orario_testo = st.text_input(f"Orario {giorno}:", value=testo_orario_default, key=f"input_{giorno}")
-                    nuovi_orari_inseriti[giorno] = orario_testo if orario_testo.strip() != "" else "Riposo"
-                else:
-                    nuovi_orari_inseriti[giorno] = "Riposo"
-                    st.caption("🛌 Giorno di Riposo")
-                    
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 SALVA ORARI SETTIMANALI", type="primary"):
-            if settimana_chiave not in db_orari[dipendente_selezionato]:
-                db_orari[dipendente_selezionato][settimana_chiave] = {}
-            db_orari[dipendente_selezionato][settimana_chiave] = nuovi_orari_inseriti
-            
-            salva_database = carica_orari()
-            if dipendente_selezionato not in salva_database:
-                salva_database[dipendente_selezionato] = {}
-            salva_database[dipendente_selezionato][settimana_chiave] = nuovi_orari_inseriti
-            salva_orari(salva_database)
-            st.success(f"✅ Orari di {dipendente_selezionato} per la settimana salvati!")
-            st.rerun()
-
-    # --- TABELLA RIASSUNTIVA FINALE (SEMPRE VISIBILE A TUTTI) ---
-    st.markdown("<br><hr>", unsafe_allow_html=True)
-    st.subheader(f"📅 Quadro Orario Generale (Settimana dal {date_settimana['Lunedì']} al {date_settimana['Domenica']})")
-    
     dati_tabella = []
     for nome, dati_annuali in db_orari.items():
         riga = {"Dipendente": nome}
         ore_settimanali = 0.0
-        
-        # Prendiamo solo i turni relativi alla settimana selezionata
         turni_settimana = dati_annuali.get(settimana_chiave, {})
         
         for giorno in giorni:
@@ -226,3 +215,8 @@ else:
             ore_settimanali += calcola_ore_da_stringa(testo_turno)
             
         riga["Ore Settimanali"] = f"{round(ore_settimanali, 1)} h"
+        riga["Ore Mensili (Stima)"] = f"{round(ore_settimanali * 4.33, 1)} h"
+        dati_tabella.append(riga)
+        
+    df = pd.DataFrame(dati_tabella)
+    st.dataframe(df.set_index("Dipendente"), use_container_width=True)
