@@ -50,15 +50,44 @@ def calcola_ore_da_stringa(testo_orario):
     return round(totale_ore, 2)
 
 
-# --- 📅 CONTROLLO SELEZIONE SETTIMANA (INTERO ANNO) ---
-st.header("🗓️ Seleziona Settimana dell'Anno")
-oggi = datetime.now()
-data_scelta = st.date_input("Scegli un giorno qualsiasi per caricare la sua settimana:", value=oggi.date())
+# --- 📅 CONTROLLO SELEZIONE SETTIMANA (CON PULSANTI RAPIDI) ---
+st.header("🗓️ Navigazione Settimane")
 
-# Calcoliamo l'inizio (Lunedì) e la fine (Domenica) della settimana scelta
-lunedi_scelto = data_scelta - timedelta(days=data_scelta.weekday())
+# Inizializziamo lo stato del giorno di riferimento se non esiste
+if "data_riferimento" not in st.session_state:
+    st.session_state["data_riferimento"] = datetime.now().date()
+
+# Layout con tre colonne in alto per i pulsanti e il calendario
+col_prev, col_cal, col_next = st.columns([1, 2, 1])
+
+with col_prev:
+    if st.button("◀️ Settimana Passata", use_container_width=True):
+        st.session_state["data_riferimento"] = st.session_state["data_riferimento"] - timedelta(days=7)
+        st.rerun()
+
+with col_next:
+    if st.button("▶️ Settimana Prossima", use_container_width=True):
+        st.session_state["data_riferimento"] = st.session_state["data_riferimento"] + timedelta(days=7)
+        st.rerun()
+
+with col_cal:
+    # Il calendario rimane sincronizzato con i pulsanti, ma permette anche salti lunghi nel tempo
+    data_scelta = st.date_input(
+        "Oppure scegli un giorno specifico:", 
+        value=st.session_state["data_riferimento"],
+        key="calendario_navigazione"
+    )
+    # Se l'utente cambia manualmente la data dal calendario, aggiorniamo la sessione
+    if data_scelta != st.session_state["data_riferimento"]:
+        st.session_state["data_riferimento"] = data_scelta
+        st.rerun()
+
+# Calcoliamo l'inizio (Lunedì) della settimana selezionata
+data_riferimento_attuale = st.session_state["data_riferimento"]
+lunedi_scelto = data_riferimento_attuale - timedelta(days=data_riferimento_attuale.weekday())
 settimana_chiave = lunedi_scelto.strftime("%Y_W%W") # Es: "2026_W35"
 
+# Generiamo le etichette con le date dei singoli giorni (es. "Lunedì (31/08)")
 date_settimana = {}
 for i, g in enumerate(giorni):
     data_giorno = lunedi_scelto + timedelta(days=i)
@@ -94,14 +123,14 @@ if st.session_state["staff_admin_logged_in"]:
 
     # 1. Inserimento nuovo dipendente globale
     nuovo_nome = st.sidebar.text_input("Nome Nuovo Dipendente:", placeholder="es. Marco").strip()
-    if st.sidebar.button("➕ Aggiungi Dipendente globally"):
+    if st.sidebar.button("➕ Aggiungi Dipendente"):
         if nuovo_nome == "":
             st.sidebar.error("⚠️ Inserisci un nome valido.")
         else:
             if nuovo_nome not in db_orari:
                 db_orari[nuovo_nome] = {}
             salva_orari(db_orari)
-            st.sidebar.success(f"✅ {nuovo_nome} aggiunto al database del personale!")
+            st.sidebar.success(f"✅ {nuovo_nome} aggiunto al database!")
             st.rerun()
 
     st.sidebar.markdown("<hr style='margin: 10px 0; border: 0.5px solid #555;'>", unsafe_allow_html=True)
@@ -139,7 +168,7 @@ else:
     # SE LOGGATO: Mostra i pannelli interattivi di modifica turni per la settimana selezionata
     if st.session_state["staff_admin_logged_in"]:
         st.markdown("<hr>", unsafe_allow_html=True)
-        st.header(f"🕒 Modifica Turni per la Settimana Selezionata ({settimana_chiave})")
+        st.header(f"🕒 Modifica Turni per la Settimana Selezionata ({settimana_chiave.replace('_', ' ')})")
         
         dipendente_selezionato = st.selectbox("Scegli il dipendente da modificare:", list(db_orari.keys()), key="main_select_dip")
         st.markdown(f"### Scheda Oraria di: **{dipendente_selezionato}**")
@@ -176,7 +205,7 @@ else:
                 salva_database[dipendente_selezionato] = {}
             salva_database[dipendente_selezionato][settimana_chiave] = nuovi_orari_inseriti
             salva_orari(salva_database)
-            st.success(f"✅ Orari di {dipendente_selezionato} per la settimana {settimana_chiave} salvati!")
+            st.success(f"✅ Orari di {dipendente_selezionato} per la settimana salvati!")
             st.rerun()
 
     # --- TABELLA RIASSUNTIVA FINALE (SEMPRE VISIBILE A TUTTI) ---
@@ -197,8 +226,3 @@ else:
             ore_settimanali += calcola_ore_da_stringa(testo_turno)
             
         riga["Ore Settimanali"] = f"{round(ore_settimanali, 1)} h"
-        riga["Ore Mensili (Stima)"] = f"{round(ore_settimanali * 4.33, 1)} h"
-        dati_tabella.append(riga)
-        
-    df = pd.DataFrame(dati_tabella)
-    st.dataframe(df.set_index("Dipendente"), use_container_width=True)
